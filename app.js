@@ -339,11 +339,11 @@ async function cargarDashboard() {
         
         const container = document.getElementById('dashboardResumen');
         container.innerHTML = `
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px;">
-                <div class="stat-card" style="background: linear-gradient(135deg, #6366f1, #4f46e5); color: white;">
+            <div class="dashboard-stats-grid">
+                <div class="stat-card-primary">
                     <div class="stat-icon"><i class="fas fa-chart-line"></i></div>
-                    <div class="stat-value" style="color: white;">${formatMoney(data.ganancias_totales)}</div>
-                    <div class="stat-label" style="color: rgba(255,255,255,0.8);">Ganancias totales</div>
+                    <div class="stat-value">${formatMoney(data.ganancias_totales)}</div>
+                    <div class="stat-label">Ganancias totales</div>
                 </div>
                 <div class="stat-card">
                     <div class="stat-icon"><i class="fas fa-shopping-cart"></i></div>
@@ -353,30 +353,40 @@ async function cargarDashboard() {
                 <div class="stat-card">
                     <div class="stat-icon"><i class="fas fa-boxes"></i></div>
                     <div class="stat-value">${formatMoney(data.stock_valor)}</div>
-                    <div class="stat-label">Valor en stock</div>
+                    <div class="stat-label">Valor del inventario</div>
                 </div>
                 <div class="stat-card">
                     <div class="stat-icon"><i class="fas fa-chart-simple"></i></div>
                     <div class="stat-value">${formatMoney(data.ganancia_promedio)}</div>
-                    <div class="stat-label">Ganancia x venta</div>
+                    <div class="stat-label">Ganancia promedio x venta</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon"><i class="fas fa-dollar-sign"></i></div>
+                    <div class="stat-value">${formatMoney(data.ingresos_totales)}</div>
+                    <div class="stat-label">Ingresos totales</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon"><i class="fas fa-chart-pie"></i></div>
+                    <div class="stat-value">${data.unidades_vendidas}</div>
+                    <div class="stat-label">Unidades vendidas</div>
                 </div>
             </div>
             
-            <div style="margin-top: 24px; padding-top: 24px; border-top: 1px solid var(--border);">
-                <h3 style="margin-bottom: 16px;"><i class="fas fa-trophy"></i> Top 5 productos más rentables</h3>
-                ${data.top_productos.length === 0 ? '<div class="loading">Sin datos</div>' : 
-                    data.top_productos.map(p => `
-                        <div class="item-card" style="margin-bottom: 8px;">
-                            <div class="item-header">
-                                <div class="item-title">${p.producto}</div>
-                                <div class="item-badge">${p.veces_vendido} ventas</div>
+            <div class="dashboard-section">
+                <h3><i class="fas fa-trophy"></i> Top 5 productos más rentables</h3>
+                <div class="top-productos-list">
+                    ${data.top_productos.length === 0 ? '<div class="loading">Sin datos</div>' : 
+                        data.top_productos.map(p => `
+                            <div class="top-producto-card">
+                                <div class="top-producto-info">
+                                    <span class="top-producto-nombre">${p.producto}</span>
+                                    <span class="top-producto-ventas">${p.veces_vendido} ventas</span>
+                                </div>
+                                <div class="top-producto-ganancia">${formatMoney(p.ganancia_total)}</div>
                             </div>
-                            <div class="item-details">
-                                <span><i class="fas fa-chart-line" style="color:#10b981;"></i> Ganancia total: ${formatMoney(p.ganancia_total)}</span>
-                            </div>
-                        </div>
-                    `).join('')
-                }
+                        `).join('')
+                    }
+                </div>
             </div>
         `;
     } catch (error) {
