@@ -1,4 +1,4 @@
-const API_URL = 'http://localhost:3000';
+const API_URL = 'https://toom-control.onrender.com/';
 let graficaPrincipal;
 let tipoGraficaActual = 'mes';
 
