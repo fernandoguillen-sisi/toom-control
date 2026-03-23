@@ -1,4 +1,4 @@
-const API_URL = 'https://toom-control.onrender.com/';
+const API_URL = 'https://toom-control.onrender.com';
 let graficaPrincipal;
 let tipoGraficaActual = 'mes';
 
@@ -220,7 +220,8 @@ document.getElementById('formCompra')?.addEventListener('submit', async (e) => {
                 alert('❌ Error: ' + (result.error || 'Error desconocido'));
             }
         } catch (error) {
-            alert('❌ Error de conexión');
+            console.error('Error:', error);
+            alert('❌ Error de conexión. Revisa la consola para más detalles.');
         }
     }
 });
@@ -267,6 +268,7 @@ document.getElementById('formVenta')?.addEventListener('submit', async (e) => {
                 alert('❌ ' + (result.error || 'Error'));
             }
         } catch (error) {
+            console.error('Error:', error);
             alert('❌ Error de conexión');
         }
     }
@@ -294,7 +296,7 @@ async function cargarHistorial() {
                     </div>
                     ${c.imagenes_lista && c.imagenes_lista.length > 0 ? `
                         <div class="imagenes-mini">
-                            ${c.imagenes_lista.slice(0, 4).map(img => `<img src="${API_URL}${img}" class="card-imagen" onclick="window.open('${API_URL}${img}', '_blank')">`).join('')}
+                            ${c.imagenes_lista.slice(0, 4).map(img => `<img src="${img}" class="card-imagen" onclick="window.open('${img}', '_blank')">`).join('')}
                             ${c.imagenes_lista.length > 4 ? `<div class="card-imagen" style="display:flex;align-items:center;justify-content:center;">+${c.imagenes_lista.length-4}</div>` : ''}
                         </div>
                     ` : '<div class="item-badge" style="margin-top:8px;">Sin imágenes</div>'}
