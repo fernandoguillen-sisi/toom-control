@@ -425,15 +425,39 @@ function cargarDarkMode() {
 
 // ============ TABS ============
 function mostrarTab(tab) {
-    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-    document.getElementById(`tab-${tab}`).classList.add('active');
-    document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
-    event.target.classList.add('active');
+    // Ocultar todos los contenidos
+    const contenidos = document.querySelectorAll('.tab-content');
+    contenidos.forEach(content => {
+        content.classList.remove('active');
+    });
     
-    if (tab === 'inventario') cargarInventario();
-    if (tab === 'historial') cargarHistorial();
-    if (tab === 'ventas') cargarProductosSelector();
-    if (tab === 'dashboard') cargarDashboard();
+    // Mostrar el contenido seleccionado
+    const contenidoActivo = document.getElementById(`tab-${tab}`);
+    if (contenidoActivo) {
+        contenidoActivo.classList.add('active');
+    }
+    
+    // Actualizar estilo de los botones
+    const botones = document.querySelectorAll('.tab-btn');
+    botones.forEach(btn => {
+        btn.classList.remove('active');
+    });
+    
+    // Activar el botón clickeado
+    if (event && event.target) {
+        event.target.classList.add('active');
+    }
+    
+    // Cargar datos según la pestaña
+    if (tab === 'inventario') {
+        cargarInventario();
+    } else if (tab === 'historial') {
+        cargarHistorial();
+    } else if (tab === 'ventas') {
+        cargarProductosSelector();
+    } else if (tab === 'dashboard') {
+        cargarDashboard();
+    }
 }
 
 // ============ INICIAR ============
