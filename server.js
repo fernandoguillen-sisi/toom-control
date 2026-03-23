@@ -1,287 +1,253 @@
 const express = require('express');
-const mysql = require('mysql2');
 const cors = require('cors');
 const multer = require('multer');
 const path = require('path');
-const fs = require('fs');
+const { createClient } = require('@supabase/supabase-js');
 const app = express();
-const port = 3000;
+const port = process.env.PORT || 3000;
 
 // Middleware
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(__dirname));
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// Configuración de multer para múltiples imágenes
-const storage = multer.diskStorage({
-    destination: function (req, file, cb) {
-        const uploadPath = path.join(__dirname, 'uploads/productos');
-        if (!fs.existsSync(uploadPath)) {
-            fs.mkdirSync(uploadPath, { recursive: true });
-        }
-        cb(null, uploadPath);
-    },
-    filename: function (req, file, cb) {
-        const uniqueSuffix = Date.now() + '_' + Math.round(Math.random() * 1E9);
-        const extension = path.extname(file.originalname);
-        cb(null, 'prod_' + uniqueSuffix + extension);
-    }
-});
+// Configuración de Supabase (desde variables de entorno)
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_ANON_KEY;
+const supabase = createClient(supabaseUrl, supabaseKey);
 
+// Configuración de multer para imágenes (en memoria)
 const upload = multer({ 
-    storage: storage,
+    storage: multer.memoryStorage(),
     limits: { fileSize: 5 * 1024 * 1024 },
     fileFilter: (req, file, cb) => {
         const allowedTypes = /jpeg|jpg|png|gif|webp/;
         const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
         const mimetype = allowedTypes.test(file.mimetype);
-        if (mimetype && extname) {
-            return cb(null, true);
-        } else {
-            cb(new Error('Solo se permiten imágenes'));
-        }
+        if (mimetype && extname) return cb(null, true);
+        cb(new Error('Solo imágenes'));
     }
 });
 
-// Base de datos
-const db = mysql.createConnection({
-    host: 'localhost',
-    user: 'root',
-    password: '',
-    database: 'toom_db'
-});
-
-db.connect((err) => {
-    if (err) {
-        console.error('❌ Error conectando a MySQL:', err);
-        return;
-    }
-    console.log('✅ Conectado a MySQL');
-});
-
-// ============ FUNCIÓN PARA ACTUALIZAR INVENTARIO ============
-function actualizarInventario(producto, cantidad, costoUnitario, esCompra) {
-    return new Promise((resolve, reject) => {
-        db.query('SELECT * FROM inventario WHERE producto = ?', [producto], (err, results) => {
-            if (err) return reject(err);
-            
-            if (results.length === 0) {
-                const stock = esCompra ? cantidad : 0;
-                db.query('INSERT INTO inventario (producto, stock, ultimo_costo) VALUES (?, ?, ?)',
-                    [producto, stock, costoUnitario], (err) => {
-                        if (err) return reject(err);
-                        resolve();
-                    });
-            } else {
-                const nuevoStock = esCompra ? results[0].stock + cantidad : results[0].stock - cantidad;
-                const nuevoCosto = esCompra ? costoUnitario : results[0].ultimo_costo;
-                db.query('UPDATE inventario SET stock = ?, ultimo_costo = ?, updated_at = NOW() WHERE producto = ?',
-                    [nuevoStock, nuevoCosto, producto], (err) => {
-                        if (err) return reject(err);
-                        resolve();
-                    });
-            }
+// ============ FUNCIÓN ACTUALIZAR INVENTARIO ============
+async function actualizarInventario(producto, cantidad, costoUnitario, esCompra) {
+    const { data: existing } = await supabase
+        .from('inventario')
+        .select('*')
+        .eq('producto', producto)
+        .single();
+    
+    if (!existing) {
+        const stock = esCompra ? cantidad : 0;
+        await supabase.from('inventario').insert({
+            producto,
+            stock,
+            ultimo_costo: costoUnitario
         });
-    });
+    } else {
+        const nuevoStock = esCompra ? existing.stock + cantidad : existing.stock - cantidad;
+        await supabase.from('inventario')
+            .update({ stock: nuevoStock, ultimo_costo: costoUnitario, updated_at: new Date() })
+            .eq('producto', producto);
+    }
 }
 
 // ============ ENDPOINTS ============
 
-// 📦 Registrar compra CON MÚLTIPLES IMÁGENES
+// 📦 Registrar compra
 app.post('/api/compras', upload.array('imagenes', 10), async (req, res) => {
-    const { fecha, producto, cantidad, precio_unidad, envio, precio_estimado_venta } = req.body;
-    
-    const total_compra = cantidad * precio_unidad;
-    const costo_total = total_compra + (parseFloat(envio) || 0);
-    const costo_unitario_total = costo_total / cantidad;
-    
-    const sql = `INSERT INTO compras 
-                 (fecha, producto, cantidad, precio_unidad, total_compra, envio, costo_total, precio_estimado_venta) 
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
-    
-    db.query(sql, [fecha, producto, cantidad, precio_unidad, total_compra, envio || 0, costo_total, precio_estimado_venta || 0], 
-        async (err, result) => {
-            if (err) {
-                console.error(err);
-                return res.status(500).json({ error: 'Error al guardar compra' });
-            }
+    try {
+        const { fecha, producto, cantidad, precio_unidad, envio, precio_estimado_venta } = req.body;
+        
+        const total_compra = cantidad * precio_unidad;
+        const costo_total = total_compra + (parseFloat(envio) || 0);
+        const costo_unitario_total = costo_total / cantidad;
+        
+        // Guardar compra
+        const { data: compra, error: compraError } = await supabase
+            .from('compras')
+            .insert({
+                fecha, producto, cantidad, precio_unidad,
+                total_compra, envio: envio || 0, costo_total,
+                precio_estimado_venta: precio_estimado_venta || 0
+            })
+            .select()
+            .single();
+        
+        if (compraError) throw compraError;
+        
+        // Subir imágenes a Supabase Storage
+        const imagenes = req.files || [];
+        for (const file of imagenes) {
+            const extension = file.originalname.split('.').pop();
+            const fileName = `prod_${Date.now()}_${Math.random()}.${extension}`;
+            const { error: uploadError } = await supabase.storage
+                .from('productos')
+                .upload(fileName, file.buffer, { contentType: file.mimetype });
             
-            const compraId = result.insertId;
-            
-            const imagenes = req.files || [];
-            for (const file of imagenes) {
-                const imagen_ruta = '/uploads/productos/' + file.filename;
-                db.query('INSERT INTO compras_imagenes (compra_id, imagen_ruta) VALUES (?, ?)', 
-                    [compraId, imagen_ruta]);
+            if (!uploadError) {
+                const { data: urlData } = supabase.storage.from('productos').getPublicUrl(fileName);
+                await supabase.from('compras_imagenes').insert({
+                    compra_id: compra.id,
+                    imagen_url: urlData.publicUrl
+                });
             }
-            
-            try {
-                await actualizarInventario(producto, parseInt(cantidad), costo_unitario_total, true);
-                res.json({ success: true, id: compraId, imagenes: imagenes.length });
-            } catch (invErr) {
-                console.error('Error actualizando inventario:', invErr);
-                res.json({ success: true, id: compraId, warning: 'Compra guardada pero error en inventario' });
-            }
-        });
+        }
+        
+        await actualizarInventario(producto, parseInt(cantidad), costo_unitario_total, true);
+        res.json({ success: true, id: compra.id });
+        
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: 'Error al guardar compra' });
+    }
 });
 
 // 💰 Registrar venta
 app.post('/api/ventas', async (req, res) => {
-    const { fecha, producto, precio_venta, envio_venta, comisiones, costo_original } = req.body;
-    
-    db.query('SELECT stock FROM inventario WHERE producto = ?', [producto], (err, stockResult) => {
-        if (err) return res.status(500).json({ error: 'Error al verificar stock' });
+    try {
+        const { fecha, producto, precio_venta, envio_venta, comisiones, costo_original } = req.body;
         
-        if (stockResult.length === 0 || stockResult[0].stock < 1) {
+        // Verificar stock
+        const { data: inventario, error: stockError } = await supabase
+            .from('inventario')
+            .select('stock')
+            .eq('producto', producto)
+            .single();
+        
+        if (stockError || !inventario || inventario.stock < 1) {
             return res.status(400).json({ error: 'Producto sin stock disponible' });
         }
         
         const total_recibido = precio_venta - (envio_venta || 0) - (comisiones || 0);
         const ganancia = total_recibido - costo_original;
         
-        const sql = `INSERT INTO ventas 
-                     (fecha, producto, precio_venta, envio_venta, comisiones, total_recibido, costo_original, ganancia) 
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
-        
-        db.query(sql, [fecha, producto, precio_venta, envio_venta || 0, comisiones || 0, total_recibido, costo_original, ganancia], 
-            async (err, result) => {
-                if (err) {
-                    console.error(err);
-                    return res.status(500).json({ error: 'Error al guardar venta' });
-                }
-                
-                try {
-                    await actualizarInventario(producto, 1, costo_original, false);
-                    res.json({ success: true, id: result.insertId });
-                } catch (invErr) {
-                    console.error('Error actualizando inventario:', invErr);
-                    res.json({ success: true, warning: 'Venta guardada pero error en inventario' });
-                }
-            });
-    });
-});
-
-// 📋 Obtener productos para el selector
-app.get('/api/inventario/productos', (req, res) => {
-    db.query('SELECT producto, ultimo_costo, stock FROM inventario ORDER BY producto', (err, results) => {
-        if (err) return res.status(500).json({ error: 'Error al obtener productos' });
-        res.json(results);
-    });
-});
-
-// 📋 Obtener compras con sus imágenes
-app.get('/api/compras', (req, res) => {
-    const sql = `SELECT c.*, 
-                    (SELECT GROUP_CONCAT(imagen_ruta) FROM compras_imagenes WHERE compra_id = c.id) as imagenes
-                 FROM compras c 
-                 ORDER BY c.fecha DESC`;
-    db.query(sql, (err, results) => {
-        if (err) return res.status(500).json({ error: 'Error al obtener compras' });
-        
-        const compras = results.map(c => ({
-            ...c,
-            imagenes_lista: c.imagenes ? c.imagenes.split(',') : []
-        }));
-        res.json(compras);
-    });
-});
-
-// 📊 Gráfica de ganancias
-app.get('/api/grafica/ganancias-mensuales', (req, res) => {
-    db.query(`SELECT DATE_FORMAT(fecha, '%Y-%m') as mes, SUM(ganancia) as total_ganancia 
-              FROM ventas GROUP BY DATE_FORMAT(fecha, '%Y-%m') ORDER BY mes DESC LIMIT 12`, 
-        (err, results) => {
-            if (err) return res.status(500).json({ error: 'Error al obtener datos' });
-            res.json(results);
+        const { error: ventaError } = await supabase.from('ventas').insert({
+            fecha, producto, precio_venta,
+            envio_venta: envio_venta || 0,
+            comisiones: comisiones || 0,
+            total_recibido, costo_original, ganancia
         });
+        
+        if (ventaError) throw ventaError;
+        
+        await actualizarInventario(producto, 1, costo_original, false);
+        res.json({ success: true });
+        
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: 'Error al guardar venta' });
+    }
+});
+
+// 📋 Obtener compras con imágenes
+app.get('/api/compras', async (req, res) => {
+    try {
+        const { data: compras, error } = await supabase
+            .from('compras')
+            .select('*')
+            .order('fecha', { ascending: false });
+        
+        if (error) throw error;
+        
+        for (const compra of compras) {
+            const { data: imagenes } = await supabase
+                .from('compras_imagenes')
+                .select('imagen_url')
+                .eq('compra_id', compra.id);
+            compra.imagenes_lista = imagenes ? imagenes.map(i => i.imagen_url) : [];
+        }
+        
+        res.json(compras);
+    } catch (error) {
+        res.status(500).json({ error: 'Error' });
+    }
+});
+
+// 📋 Obtener productos
+app.get('/api/inventario/productos', async (req, res) => {
+    const { data } = await supabase.from('inventario').select('producto, ultimo_costo, stock').order('producto');
+    res.json(data || []);
+});
+
+// 📊 Gráfica mensual
+app.get('/api/grafica/ganancias-mensuales', async (req, res) => {
+    const { data } = await supabase.from('ventas').select('fecha, ganancia');
+    const meses = {};
+    (data || []).forEach(v => {
+        const mes = v.fecha.slice(0, 7);
+        meses[mes] = (meses[mes] || 0) + v.ganancia;
+    });
+    const result = Object.entries(meses).map(([mes, total]) => ({ mes, total_ganancia: total }));
+    res.json(result);
+});
+
+// 📊 Gráfica anual
+app.get('/api/grafica/ganancias-anuales', async (req, res) => {
+    const { data } = await supabase.from('ventas').select('fecha, ganancia');
+    const anos = {};
+    (data || []).forEach(v => {
+        const ano = v.fecha.slice(0, 4);
+        anos[ano] = (anos[ano] || 0) + v.ganancia;
+    });
+    const result = Object.entries(anos).map(([ano, total]) => ({ ano, total_ganancia: total }));
+    res.json(result);
 });
 
 // 📋 Obtener ventas
-app.get('/api/ventas', (req, res) => {
-    db.query('SELECT * FROM ventas ORDER BY fecha DESC', (err, results) => {
-        if (err) return res.status(500).json({ error: 'Error al obtener ventas' });
-        res.json(results);
-    });
+app.get('/api/ventas', async (req, res) => {
+    const { data } = await supabase.from('ventas').select('*').order('fecha', { ascending: false });
+    res.json(data || []);
 });
 
-// 📊 Obtener inventario completo
-app.get('/api/inventario', (req, res) => {
-    db.query('SELECT * FROM inventario ORDER BY producto', (err, results) => {
-        if (err) return res.status(500).json({ error: 'Error al obtener inventario' });
-        res.json(results);
-    });
+// 📊 Inventario
+app.get('/api/inventario', async (req, res) => {
+    const { data } = await supabase.from('inventario').select('*').order('producto');
+    res.json(data || []);
 });
-// 📊 Gráfica de ganancias por año
-app.get('/api/grafica/ganancias-anuales', (req, res) => {
-    db.query(`SELECT DATE_FORMAT(fecha, '%Y') as ano, SUM(ganancia) as total_ganancia 
-              FROM ventas GROUP BY DATE_FORMAT(fecha, '%Y') ORDER BY ano DESC`, 
-        (err, results) => {
-            if (err) return res.status(500).json({ error: 'Error al obtener datos' });
-            res.json(results);
-        });
-});
-// 📊 DASHBOARD - Resumen de estadísticas
-app.get('/api/dashboard/resumen', (req, res) => {
-    const sqlGananciasTotales = 'SELECT SUM(ganancia) as total FROM ventas';
-    const sqlTotalVentas = 'SELECT COUNT(*) as cantidad, SUM(precio_venta) as ingresos FROM ventas';
-    const sqlTotalCompras = 'SELECT SUM(costo_total) as total FROM compras';
-    const sqlStockValor = 'SELECT SUM(stock * ultimo_costo) as valor FROM inventario';
-    const sqlUnidadesVendidas = 'SELECT COUNT(*) as unidades FROM ventas';
-    const sqlGananciaPromedio = 'SELECT AVG(ganancia) as promedio FROM ventas';
-    const sqlVentasPorMes = `SELECT DATE_FORMAT(fecha, '%Y-%m') as mes, COUNT(*) as cantidad, SUM(ganancia) as ganancia 
-                             FROM ventas GROUP BY DATE_FORMAT(fecha, '%Y-%m') ORDER BY mes DESC LIMIT 6`;
-    const sqlTopProductos = `SELECT producto, SUM(ganancia) as ganancia_total, COUNT(*) as veces_vendido 
-                            FROM ventas GROUP BY producto ORDER BY ganancia_total DESC LIMIT 5`;
+
+// 📊 Dashboard
+app.get('/api/dashboard/resumen', async (req, res) => {
+    const { data: ventas } = await supabase.from('ventas').select('ganancia, precio_venta');
+    const { data: compras } = await supabase.from('compras').select('costo_total');
+    const { data: inventario } = await supabase.from('inventario').select('stock, ultimo_costo');
     
-    db.query(sqlGananciasTotales, (err, ganancias) => {
-        if (err) return res.status(500).json({ error: 'Error en ganancias' });
-        
-        db.query(sqlTotalVentas, (err, ventas) => {
-            if (err) return res.status(500).json({ error: 'Error en ventas' });
-            
-            db.query(sqlTotalCompras, (err, compras) => {
-                if (err) return res.status(500).json({ error: 'Error en compras' });
-                
-                db.query(sqlStockValor, (err, stock) => {
-                    if (err) return res.status(500).json({ error: 'Error en stock' });
-                    
-                    db.query(sqlUnidadesVendidas, (err, unidades) => {
-                        if (err) return res.status(500).json({ error: 'Error en unidades' });
-                        
-                        db.query(sqlGananciaPromedio, (err, promedio) => {
-                            if (err) return res.status(500).json({ error: 'Error en promedio' });
-                            
-                            db.query(sqlVentasPorMes, (err, meses) => {
-                                if (err) return res.status(500).json({ error: 'Error en meses' });
-                                
-                                db.query(sqlTopProductos, (err, top) => {
-                                    if (err) return res.status(500).json({ error: 'Error en top' });
-                                    
-                                    res.json({
-                                        ganancias_totales: ganancias[0]?.total || 0,
-                                        total_ventas: ventas[0]?.cantidad || 0,
-                                        ingresos_totales: ventas[0]?.ingresos || 0,
-                                        total_compras: compras[0]?.total || 0,
-                                        stock_valor: stock[0]?.valor || 0,
-                                        unidades_vendidas: unidades[0]?.unidades || 0,
-                                        ganancia_promedio: promedio[0]?.promedio || 0,
-                                        ventas_por_mes: meses || [],
-                                        top_productos: top || []
-                                    });
-                                });
-                            });
-                        });
-                    });
-                });
-            });
-        });
+    const ganancias_totales = (ventas || []).reduce((sum, v) => sum + v.ganancia, 0);
+    const total_ventas = (ventas || []).length;
+    const ingresos_totales = (ventas || []).reduce((sum, v) => sum + v.precio_venta, 0);
+    const total_compras = (compras || []).reduce((sum, c) => sum + c.costo_total, 0);
+    const stock_valor = (inventario || []).reduce((sum, i) => sum + (i.stock * i.ultimo_costo), 0);
+    const unidades_vendidas = total_ventas;
+    const ganancia_promedio = total_ventas ? ganancias_totales / total_ventas : 0;
+    
+    // Top productos
+    const { data: ventasDetalle } = await supabase.from('ventas').select('producto, ganancia');
+    const productosMap = {};
+    (ventasDetalle || []).forEach(v => {
+        if (!productosMap[v.producto]) productosMap[v.producto] = { ganancia_total: 0, veces_vendido: 0 };
+        productosMap[v.producto].ganancia_total += v.ganancia;
+        productosMap[v.producto].veces_vendido++;
+    });
+    const top_productos = Object.entries(productosMap)
+        .map(([producto, data]) => ({ producto, ...data }))
+        .sort((a, b) => b.ganancia_total - a.ganancia_total)
+        .slice(0, 5);
+    
+    res.json({
+        ganancias_totales,
+        total_ventas,
+        ingresos_totales,
+        total_compras,
+        stock_valor,
+        unidades_vendidas,
+        ganancia_promedio,
+        ventas_por_mes: [],
+        top_productos
     });
 });
 
-// Iniciar servidor
 app.listen(port, () => {
-    console.log(`🚀 Servidor Toom corriendo en http://localhost:${port}`);
-    console.log(`📸 Múltiples imágenes se guardan en: uploads/productos/`);
+    console.log(`🚀 Servidor Toom en http://localhost:${port}`);
+    console.log(`📸 Usando Supabase Storage para imágenes`);
 });
