@@ -165,9 +165,13 @@ app.get('/api/compras', async (req, res) => {
     }
 });
 
-// 📋 Obtener productos
+// 📋 Obtener productos (SOLO con stock > 0)
 app.get('/api/inventario/productos', async (req, res) => {
-    const { data } = await supabase.from('inventario').select('producto, ultimo_costo, stock').order('producto');
+    const { data } = await supabase
+        .from('inventario')
+        .select('producto, ultimo_costo, stock')
+        .gt('stock', 0)  // SOLO productos con stock mayor a 0
+        .order('producto');
     res.json(data || []);
 });
 

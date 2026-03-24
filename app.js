@@ -117,21 +117,29 @@ function previewMultiplesImagenes() {
     }
 }
 
-// ============ CARGAR PRODUCTOS PARA SELECTOR ============
+// ============ CARGAR PRODUCTOS PARA SELECTOR (SOLO CON STOCK) ============
 async function cargarProductosSelector() {
     try {
         const response = await fetch(`${API_URL}/api/inventario/productos`);
         const productos = await response.json();
         const select = document.getElementById('productoVenta');
-        select.innerHTML = '<option value="">Seleccionar producto...</option>';
-        productos.forEach(p => {
-            const option = document.createElement('option');
-            option.value = p.producto;
-            option.setAttribute('data-costo', p.ultimo_costo);
-            option.setAttribute('data-stock', p.stock);
-            option.textContent = `${p.producto} (Stock: ${p.stock} - Costo: $${p.ultimo_costo})`;
-            select.appendChild(option);
-        });
+        
+        if (productos.length === 0) {
+            select.innerHTML = '<option value="">No hay productos con stock disponible</option>';
+            select.disabled = true;
+            document.getElementById('costoOriginal').value = '';
+        } else {
+            select.disabled = false;
+            select.innerHTML = '<option value="">Seleccionar producto...</option>';
+            productos.forEach(p => {
+                const option = document.createElement('option');
+                option.value = p.producto;
+                option.setAttribute('data-costo', p.ultimo_costo);
+                option.setAttribute('data-stock', p.stock);
+                option.textContent = `${p.producto} (Stock: ${p.stock} - Costo: $${p.ultimo_costo})`;
+                select.appendChild(option);
+            });
+        }
     } catch (error) {
         console.error('Error cargando productos:', error);
     }
@@ -244,10 +252,21 @@ document.getElementById('formVenta')?.addEventListener('submit', async (e) => {
         return;
     }
     
+    // Verificar que el producto aún tiene stock (validación extra)
+    const select = document.getElementById('productoVenta');
+    const selectedOption = select.options[select.selectedIndex];
+    const stockDisponible = parseInt(selectedOption.getAttribute('data-stock')) || 0;
+    
+    if (stockDisponible < 1) {
+        alert('❌ Este producto ya no tiene stock disponible');
+        cargarProductosSelector(); // Recargar la lista
+        return;
+    }
+    
     const totalRecibido = data.precio_venta - data.envio_venta - data.comisiones;
     const ganancia = totalRecibido - data.costo_original;
     
-    if (confirm(`💰 Confirmar venta:\n\nProducto: ${data.producto}\nPrecio venta: $${data.precio_venta.toFixed(2)}\nEnvío: $${data.envio_venta.toFixed(2)}\nComisiones: $${data.comisiones.toFixed(2)}\nTotal recibido: $${totalRecibido.toFixed(2)}\nCosto original: $${data.costo_original.toFixed(2)}\nGanancia: $${ganancia.toFixed(2)}\n\n¿Guardar?`)) {
+    if (confirm(`💰 Confirmar venta:\n\nProducto: ${data.producto}\nStock disponible: ${stockDisponible}\nPrecio venta: $${data.precio_venta.toFixed(2)}\nGanancia estimada: $${ganancia.toFixed(2)}\n\n¿Guardar?`)) {
         try {
             const response = await fetch(`${API_URL}/api/ventas`, {
                 method: 'POST',
@@ -258,14 +277,19 @@ document.getElementById('formVenta')?.addEventListener('submit', async (e) => {
             if (response.ok) {
                 alert('💰 Venta registrada');
                 e.target.reset();
+                // Recargar todo
                 cargarGrafica();
                 cargarInventario();
-                cargarProductosSelector();
+                cargarProductosSelector(); // Esto recargará la lista sin productos agotados
                 cargarHistorial();
                 actualizarStatsCards();
                 cargarDashboard();
             } else {
                 alert('❌ ' + (result.error || 'Error'));
+                // Si el error es por stock, recargar productos
+                if (result.error && result.error.includes('stock')) {
+                    cargarProductosSelector();
+                }
             }
         } catch (error) {
             console.error('Error:', error);
