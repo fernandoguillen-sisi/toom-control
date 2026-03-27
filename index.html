@@ -481,7 +481,97 @@
     gap: 16px;
     margin-bottom: 24px;
 }
+/* Filtros de inventario */
+.filtro-stock {
+    display: flex;
+    gap: 8px;
+    background: var(--bg);
+    padding: 4px;
+    border-radius: 40px;
+}
 
+.filtro-btn {
+    padding: 8px 16px;
+    background: transparent;
+    border: none;
+    border-radius: 32px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    color: var(--text-light);
+    transition: all 0.2s;
+}
+
+.filtro-btn.active {
+    background: var(--primary);
+    color: white;
+}
+
+.filtro-btn:hover:not(.active) {
+    background: var(--border);
+    color: var(--text);
+}
+
+/* Tarjetas de inventario */
+.inventario-card {
+    background: var(--card);
+    border-radius: 16px;
+    padding: 16px;
+    margin-bottom: 8px;
+    border: 1px solid var(--border);
+    transition: all 0.2s;
+}
+
+.inventario-card.sin-stock {
+    opacity: 0.7;
+    border-left: 3px solid var(--danger);
+}
+
+.inventario-card:hover {
+    transform: translateX(4px);
+}
+
+.inventario-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.inventario-nombre {
+    font-weight: 600;
+    font-size: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.inventario-stock {
+    padding: 4px 12px;
+    border-radius: 40px;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.stock-positivo {
+    background: #10b98120;
+    color: #10b981;
+}
+
+.stock-cero {
+    background: #ef444420;
+    color: #ef4444;
+}
+
+.inventario-detalles {
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+    font-size: 13px;
+    color: var(--text-light);
+}
 .stat-card-primary {
     background: linear-gradient(135deg, #6366f1, #4f46e5);
     border-radius: 20px;
@@ -682,15 +772,22 @@
             </div>
         </div>
 
-        <!-- Tab: Inventario -->
-        <div id="tab-inventario" class="tab-content">
-            <div class="form-card">
-                <h2><i class="fas fa-warehouse"></i> Stock actual</h2>
-                <div id="listaInventario" class="cards-list">
-                    <div class="loading"><i class="fas fa-spinner fa-spin"></i> Cargando...</div>
-                </div>
+<!-- Tab: Inventario -->
+<div id="tab-inventario" class="tab-content">
+    <div class="form-card">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 12px;">
+            <h2><i class="fas fa-warehouse"></i> Stock actual</h2>
+            <div class="filtro-stock">
+                <button class="filtro-btn active" onclick="filtrarInventario('todos')">📦 Todos</button>
+                <button class="filtro-btn" onclick="filtrarInventario('con-stock')">✅ Con stock</button>
+                <button class="filtro-btn" onclick="filtrarInventario('sin-stock')">⚠️ Sin stock</button>
             </div>
         </div>
+        <div id="listaInventario" class="cards-list">
+            <div class="loading"><i class="fas fa-spinner fa-spin"></i> Cargando...</div>
+        </div>
+    </div>
+</div>
 
         <!-- Tab: Dashboard -->
 <div id="tab-dashboard" class="tab-content">

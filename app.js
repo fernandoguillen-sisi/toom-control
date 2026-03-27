@@ -1,7 +1,8 @@
 const API_URL = 'https://toom-control.onrender.com';
 let graficaPrincipal;
 let tipoGraficaActual = 'mes';
-
+let filtroInventarioActual = 'todos';
+let inventarioCompleto = []; // Guardar todos los productos
 // ============ ACTUALIZAR STATS CARDS ============
 async function actualizarStatsCards() {
     try {
@@ -156,34 +157,75 @@ function actualizarCostoVenta() {
     }
 }
 
-// ============ CARGAR INVENTARIO ============
+// ============ CARGAR INVENTARIO CON FILTRO ============
 async function cargarInventario() {
     try {
         const response = await fetch(`${API_URL}/api/inventario`);
-        const inventario = await response.json();
-        const container = document.getElementById('listaInventario');
-        
-        if (inventario.length === 0) {
-            container.innerHTML = '<div class="item-card"><div class="item-title">No hay productos en inventario</div></div>';
-        } else {
-            container.innerHTML = inventario.map(p => `
-                <div class="item-card">
-                    <div class="item-header">
-                        <div class="item-title"><i class="fas fa-box"></i> ${p.producto}</div>
-                        <div class="item-badge">Stock: ${p.stock} unidades</div>
-                    </div>
-                    <div class="item-details">
-                        <span><i class="fas fa-dollar-sign"></i> Último costo: $${parseFloat(p.ultimo_costo).toFixed(2)}</span>
-                        <span><i class="fas fa-chart-line"></i> Valor total: $${(p.stock * p.ultimo_costo).toFixed(2)}</span>
-                    </div>
-                </div>
-            `).join('');
-        }
+        inventarioCompleto = await response.json();
+        aplicarFiltroInventario();
     } catch (error) {
         console.error('Error cargando inventario:', error);
+        document.getElementById('listaInventario').innerHTML = '<div class="loading">Error al cargar inventario</div>';
     }
 }
 
+function aplicarFiltroInventario() {
+    let productosFiltrados = [...inventarioCompleto];
+    
+    if (filtroInventarioActual === 'con-stock') {
+        productosFiltrados = productosFiltrados.filter(p => p.stock > 0);
+    } else if (filtroInventarioActual === 'sin-stock') {
+        productosFiltrados = productosFiltrados.filter(p => p.stock === 0);
+    }
+    
+    const container = document.getElementById('listaInventario');
+    
+    if (productosFiltrados.length === 0) {
+        let mensaje = '';
+        if (filtroInventarioActual === 'con-stock') mensaje = 'No hay productos con stock disponible';
+        else if (filtroInventarioActual === 'sin-stock') mensaje = 'No hay productos sin stock';
+        else mensaje = 'No hay productos en inventario';
+        container.innerHTML = `<div class="item-card"><div class="item-title">${mensaje}</div></div>`;
+        return;
+    }
+    
+    container.innerHTML = productosFiltrados.map(p => {
+        const sinStock = p.stock === 0;
+        const stockClass = sinStock ? 'stock-cero' : 'stock-positivo';
+        const stockTexto = sinStock ? 'Sin stock' : `${p.stock} unidades`;
+        
+        return `
+            <div class="inventario-card ${sinStock ? 'sin-stock' : ''}">
+                <div class="inventario-header">
+                    <div class="inventario-nombre">
+                        <i class="fas fa-box"></i> ${p.producto}
+                    </div>
+                    <div class="inventario-stock ${stockClass}">
+                        ${stockTexto}
+                    </div>
+                </div>
+                <div class="inventario-detalles">
+                    <span><i class="fas fa-dollar-sign"></i> Último costo: $${parseFloat(p.ultimo_costo).toFixed(2)}</span>
+                    <span><i class="fas fa-chart-line"></i> Valor total: $${(p.stock * p.ultimo_costo).toFixed(2)}</span>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+// ============ FILTRAR INVENTARIO ============
+function filtrarInventario(tipo) {
+    filtroInventarioActual = tipo;
+    
+    // Actualizar estilo de los botones
+    document.querySelectorAll('.filtro-btn').forEach(btn => {
+        btn.classList.remove('active');
+    });
+    event.target.classList.add('active');
+    
+    // Aplicar filtro
+    aplicarFiltroInventario();
+}
 // ============ GUARDAR COMPRA ============
 document.getElementById('formCompra')?.addEventListener('submit', async (e) => {
     e.preventDefault();
