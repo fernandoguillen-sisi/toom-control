@@ -334,7 +334,42 @@
             color: var(--text);
             transition: all 0.2s;
         }
+input[type="date"]::-webkit-calendar-picker-indicator {
+    filter: invert(0.5);
+    cursor: pointer;
+}
+.btn-editar, .btn-eliminar {
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    border: none;
+    transition: all 0.2s;
+}
 
+.btn-editar {
+    background: var(--primary);
+    color: white;
+}
+
+.btn-editar:hover {
+    background: var(--primary-dark);
+    transform: scale(1.02);
+}
+
+.btn-eliminar {
+    background: var(--danger);
+    color: white;
+}
+
+.btn-eliminar:hover {
+    background: #dc2626;
+    transform: scale(1.02);
+}
+body.dark input[type="date"]::-webkit-calendar-picker-indicator {
+    filter: invert(1);
+}
         input:focus, select:focus {
             outline: none;
             border-color: var(--primary);

@@ -340,7 +340,7 @@ document.getElementById('formVenta')?.addEventListener('submit', async (e) => {
     }
 });
 
-// ============ CARGAR HISTORIAL ============
+// ============ CARGAR HISTORIAL CON EDITAR/ELIMINAR ============
 async function cargarHistorial() {
     try {
         const comprasRes = await fetch(`${API_URL}/api/compras`);
@@ -350,8 +350,8 @@ async function cargarHistorial() {
         if (compras.length === 0) {
             listaCompras.innerHTML = '<div class="item-card">No hay compras registradas</div>';
         } else {
-            listaCompras.innerHTML = compras.slice(0, 15).map(c => `
-                <div class="item-card">
+            listaCompras.innerHTML = compras.slice(0, 20).map(c => `
+                <div class="item-card" id="compra-${c.id}">
                     <div class="item-header">
                         <div class="item-title"><i class="fas fa-box"></i> ${c.producto}</div>
                         <div class="item-badge">${c.fecha}</div>
@@ -360,12 +360,15 @@ async function cargarHistorial() {
                         <span><i class="fas fa-hashtag"></i> ${c.cantidad} unidades</span>
                         <span><i class="fas fa-dollar-sign"></i> $${parseFloat(c.costo_total).toFixed(2)}</span>
                     </div>
+                    <div style="display: flex; gap: 8px; margin-top: 12px;">
+                        <button class="btn-editar" onclick="editarCompra(${c.id})"><i class="fas fa-edit"></i> Editar</button>
+                        <button class="btn-eliminar" onclick="eliminarCompra(${c.id})"><i class="fas fa-trash"></i> Eliminar</button>
+                    </div>
                     ${c.imagenes_lista && c.imagenes_lista.length > 0 ? `
-                        <div class="imagenes-mini">
+                        <div class="imagenes-mini" style="margin-top: 12px;">
                             ${c.imagenes_lista.slice(0, 4).map(img => `<img src="${img}" class="card-imagen" onclick="window.open('${img}', '_blank')">`).join('')}
-                            ${c.imagenes_lista.length > 4 ? `<div class="card-imagen" style="display:flex;align-items:center;justify-content:center;">+${c.imagenes_lista.length-4}</div>` : ''}
                         </div>
-                    ` : '<div class="item-badge" style="margin-top:8px;">Sin imágenes</div>'}
+                    ` : ''}
                 </div>
             `).join('');
         }
@@ -377,8 +380,8 @@ async function cargarHistorial() {
         if (ventas.length === 0) {
             listaVentas.innerHTML = '<div class="item-card">No hay ventas registradas</div>';
         } else {
-            listaVentas.innerHTML = ventas.slice(0, 15).map(v => `
-                <div class="item-card">
+            listaVentas.innerHTML = ventas.slice(0, 20).map(v => `
+                <div class="item-card" id="venta-${v.id}">
                     <div class="item-header">
                         <div class="item-title"><i class="fas fa-tag"></i> ${v.producto}</div>
                         <div class="item-badge">${v.fecha}</div>
@@ -386,6 +389,10 @@ async function cargarHistorial() {
                     <div class="item-details">
                         <span><i class="fas fa-dollar-sign"></i> Venta: $${parseFloat(v.precio_venta).toFixed(2)}</span>
                         <span><i class="fas fa-chart-line" style="color:#10b981;"></i> Ganancia: $${parseFloat(v.ganancia).toFixed(2)}</span>
+                    </div>
+                    <div style="display: flex; gap: 8px; margin-top: 12px;">
+                        <button class="btn-editar" onclick="editarVenta(${v.id})"><i class="fas fa-edit"></i> Editar</button>
+                        <button class="btn-eliminar" onclick="eliminarVenta(${v.id})"><i class="fas fa-trash"></i> Eliminar</button>
                     </div>
                 </div>
             `).join('');
@@ -420,11 +427,6 @@ async function cargarDashboard() {
                     <div class="stat-icon"><i class="fas fa-boxes"></i></div>
                     <div class="stat-value">${formatMoney(data.stock_valor)}</div>
                     <div class="stat-label">Valor del inventario</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-icon"><i class="fas fa-chart-simple"></i></div>
-                    <div class="stat-value">${formatMoney(data.ganancia_promedio)}</div>
-                    <div class="stat-label">Ganancia promedio x venta</div>
                 </div>
                 <div class="stat-card">
                     <div class="stat-icon"><i class="fas fa-dollar-sign"></i></div>
@@ -525,7 +527,113 @@ function mostrarTab(tab) {
         cargarDashboard();
     }
 }
+// ============ EDITAR/ELIMINAR COMPRAS ============
+async function editarCompra(id) {
+    const nuevaFecha = prompt("Nueva fecha (YYYY-MM-DD):");
+    const nuevoProducto = prompt("Nuevo producto:");
+    const nuevaCantidad = prompt("Nueva cantidad:");
+    const nuevoPrecio = prompt("Nuevo precio por unidad:");
+    const nuevoEnvio = prompt("Nuevo envío:");
+    
+    if (nuevaFecha && nuevoProducto && nuevaCantidad && nuevoPrecio) {
+        const data = {
+            fecha: nuevaFecha,
+            producto: nuevoProducto,
+            cantidad: parseFloat(nuevaCantidad),
+            precio_unidad: parseFloat(nuevoPrecio),
+            envio: parseFloat(nuevoEnvio) || 0
+        };
+        
+        const response = await fetch(`${API_URL}/api/compras/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        
+        if (response.ok) {
+            alert('✅ Compra editada');
+            cargarHistorial();
+            cargarInventario();
+            cargarGrafica();
+            cargarDashboard();
+        } else {
+            alert('❌ Error al editar');
+        }
+    }
+}
 
+async function eliminarCompra(id) {
+    if (confirm('⚠️ ¿Eliminar esta compra? Se ajustará el inventario automáticamente.')) {
+        const response = await fetch(`${API_URL}/api/compras/${id}`, {
+            method: 'DELETE'
+        });
+        
+        if (response.ok) {
+            alert('✅ Compra eliminada');
+            cargarHistorial();
+            cargarInventario();
+            cargarGrafica();
+            cargarDashboard();
+        } else {
+            alert('❌ Error al eliminar');
+        }
+    }
+}
+
+// ============ EDITAR/ELIMINAR VENTAS ============
+async function editarVenta(id) {
+    const nuevaFecha = prompt("Nueva fecha (YYYY-MM-DD):");
+    const nuevoProducto = prompt("Nuevo producto:");
+    const nuevoPrecio = prompt("Nuevo precio de venta:");
+    const nuevoEnvio = prompt("Nuevo envío:");
+    const nuevasComisiones = prompt("Nuevas comisiones:");
+    const nuevoCosto = prompt("Nuevo costo original:");
+    
+    if (nuevaFecha && nuevoProducto && nuevoPrecio) {
+        const data = {
+            fecha: nuevaFecha,
+            producto: nuevoProducto,
+            precio_venta: parseFloat(nuevoPrecio),
+            envio_venta: parseFloat(nuevoEnvio) || 0,
+            comisiones: parseFloat(nuevasComisiones) || 0,
+            costo_original: parseFloat(nuevoCosto) || 0
+        };
+        
+        const response = await fetch(`${API_URL}/api/ventas/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        
+        if (response.ok) {
+            alert('✅ Venta editada');
+            cargarHistorial();
+            cargarInventario();
+            cargarGrafica();
+            cargarDashboard();
+        } else {
+            alert('❌ Error al editar');
+        }
+    }
+}
+
+async function eliminarVenta(id) {
+    if (confirm('⚠️ ¿Eliminar esta venta? Se devolverá el stock al inventario.')) {
+        const response = await fetch(`${API_URL}/api/ventas/${id}`, {
+            method: 'DELETE'
+        });
+        
+        if (response.ok) {
+            alert('✅ Venta eliminada');
+            cargarHistorial();
+            cargarInventario();
+            cargarGrafica();
+            cargarDashboard();
+        } else {
+            alert('❌ Error al eliminar');
+        }
+    }
+}
 // ============ INICIAR ============
 cargarDarkMode();
 cargarGrafica();
