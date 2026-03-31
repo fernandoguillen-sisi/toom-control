@@ -776,6 +776,134 @@ async function cargarIntercambios() {
         console.error('Error cargando intercambios:', error);
     }
 }
+// ============ WALLET ============
+async function cargarSaldosWallet() {
+    try {
+        const response = await fetch(`${API_URL}/api/wallet/saldos`);
+        const data = await response.json();
+        
+        const saldoGeneral = data.saldos.find(s => s.fondo === 'general')?.saldo || 0;
+        const saldoFer = data.saldos.find(s => s.fondo === 'fondo_fer')?.saldo || 0;
+        const saldoSegas = data.saldos.find(s => s.fondo === 'fondo_segas')?.saldo || 0;
+        const porcentajeFer = data.porcentajes?.find(p => p.nombre === 'fondo_fer')?.porcentaje || 15;
+        const porcentajeSegas = data.porcentajes?.find(p => p.nombre === 'fondo_segas')?.porcentaje || 15;
+        
+        const container = document.getElementById('saldosWallet');
+        container.innerHTML = `
+            <div class="stat-card-primary" style="background: linear-gradient(135deg, #6366f1, #4f46e5);">
+                <div class="stat-icon"><i class="fas fa-coins"></i></div>
+                <div class="stat-value">$${saldoGeneral.toFixed(2)}</div>
+                <div class="stat-label">Fondo general (${100 - porcentajeFer - porcentajeSegas}%)</div>
+            </div>
+            <div class="stat-card" style="border-top: 3px solid #ec489a;">
+                <div class="stat-icon"><i class="fas fa-heart" style="color: #ec489a;"></i></div>
+                <div class="stat-value">$${saldoFer.toFixed(2)}</div>
+                <div class="stat-label">Fondo Fer (${porcentajeFer}%)</div>
+            </div>
+            <div class="stat-card" style="border-top: 3px solid #10b981;">
+                <div class="stat-icon"><i class="fas fa-leaf" style="color: #10b981;"></i></div>
+                <div class="stat-value">$${saldoSegas.toFixed(2)}</div>
+                <div class="stat-label">Fondo Segas (${porcentajeSegas}%)</div>
+            </div>
+        `;
+    } catch (error) {
+        console.error('Error cargando saldos:', error);
+    }
+}
+
+async function cargarMovimientosWallet() {
+    try {
+        const response = await fetch(`${API_URL}/api/wallet/movimientos`);
+        const movimientos = await response.json();
+        const container = document.getElementById('listaMovimientos');
+        
+        if (movimientos.length === 0) {
+            container.innerHTML = '<div class="item-card">No hay movimientos</div>';
+        } else {
+            container.innerHTML = movimientos.map(m => {
+                const tipoIcono = m.tipo.includes('ingreso') ? '💰' : (m.tipo.includes('gasto') ? '💸' : '🏦');
+                const tipoColor = m.tipo.includes('ingreso') ? '#10b981' : (m.tipo.includes('gasto') ? '#ef4444' : '#f59e0b');
+                return `
+                    <div class="item-card">
+                        <div class="item-header">
+                            <div class="item-title">${tipoIcono} ${m.concepto}</div>
+                            <div class="item-badge">${m.fecha}</div>
+                        </div>
+                        <div class="item-details">
+                            <span>Categoría: ${m.categoria}</span>
+                            <span style="color: ${tipoColor}; font-weight: 600;">Monto: $${m.monto.toFixed(2)}</span>
+                        </div>
+                        ${m.fondo_origen ? `<div class="item-details"><span>Fondo: ${m.fondo_origen}</span></div>` : ''}
+                    </div>
+                `;
+            }).join('');
+        }
+    } catch (error) {
+        console.error('Error cargando movimientos:', error);
+    }
+}
+
+// Registrar gasto
+document.getElementById('formGasto')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const data = {
+        fecha: document.getElementById('fechaGasto').value,
+        categoria: document.getElementById('categoriaGasto').value,
+        concepto: document.getElementById('conceptoGasto').value,
+        monto: parseFloat(document.getElementById('montoGasto').value),
+        fondo_origen: document.getElementById('fondoGasto').value
+    };
+    
+    if (confirm(`💸 Registrar gasto:\n\nConcepto: ${data.concepto}\nMonto: $${data.monto}\nFondo: ${data.fondo_origen}\n¿Confirmar?`)) {
+        const response = await fetch(`${API_URL}/api/wallet/gasto`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        const result = await response.json();
+        if (response.ok) {
+            alert('✅ Gasto registrado');
+            e.target.reset();
+            cargarSaldosWallet();
+            cargarMovimientosWallet();
+        } else {
+            alert('❌ ' + (result.error || 'Error'));
+        }
+    }
+});
+
+// Retirar de fondos
+document.getElementById('formRetiro')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const data = {
+        fecha: document.getElementById('fechaRetiro').value,
+        fondo: document.getElementById('fondoRetiro').value,
+        monto: parseFloat(document.getElementById('montoRetiro').value),
+        concepto: document.getElementById('conceptoRetiro').value
+    };
+    
+    if (!data.fondo) {
+        alert('❌ Selecciona un fondo');
+        return;
+    }
+    
+    if (confirm(`🏦 Retirar del ${data.fondo === 'fondo_fer' ? 'Fondo Fer' : 'Fondo Segas'}:\n\nMonto: $${data.monto}\nConcepto: ${data.concepto}\n¿Confirmar?`)) {
+        const response = await fetch(`${API_URL}/api/wallet/retirar`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        const result = await response.json();
+        if (response.ok) {
+            alert('✅ Retiro registrado');
+            e.target.reset();
+            cargarSaldosWallet();
+            cargarMovimientosWallet();
+        } else {
+            alert('❌ ' + (result.error || 'Error'));
+        }
+    }
+});
 // ============ INICIAR ============
 cargarDarkMode();
 cargarGrafica();

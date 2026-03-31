@@ -133,6 +133,12 @@ app.post('/api/ventas', async (req, res) => {
         if (ventaError) throw ventaError;
         
         await actualizarInventario(producto, 1, costo_original, false);
+        
+        // ✅ NUEVO: Procesar ganancia en Wallet (solo si hay ganancia positiva)
+        if (ganancia > 0) {
+            await procesarGanancia(ganancia, fecha);
+        }
+        
         res.json({ success: true });
         
     } catch (error) {
@@ -491,6 +497,11 @@ app.post('/api/intercambios', async (req, res) => {
             .update({ stock: stockRecibido.stock + cantidad_recibida })
             .eq('producto', producto_recibido);
         
+        // ✅ NUEVO: Procesar ganancia en Wallet (solo si hay ganancia positiva)
+        if (gananciaIntercambio > 0) {
+            await procesarGanancia(gananciaIntercambio, fecha);
+        }
+        
         res.json({ success: true, id: intercambio.id, ganancia: gananciaIntercambio });
         
     } catch (error) {
@@ -507,6 +518,144 @@ app.get('/api/intercambios', async (req, res) => {
         .order('fecha', { ascending: false });
     res.json(data || []);
 });
+// ============ WALLET ============
+
+// Función para actualizar saldo de un fondo
+async function actualizarSaldoFondo(fondo, monto, operacion) {
+    const { data: saldoActual } = await supabase
+        .from('wallet_saldos')
+        .select('saldo')
+        .eq('fondo', fondo)
+        .single();
+    
+    let nuevoSaldo;
+    if (operacion === 'sumar') {
+        nuevoSaldo = (saldoActual?.saldo || 0) + monto;
+    } else if (operacion === 'restar') {
+        nuevoSaldo = (saldoActual?.saldo || 0) - monto;
+        if (nuevoSaldo < 0) throw new Error(`Saldo insuficiente en ${fondo}`);
+    }
+    
+    await supabase
+        .from('wallet_saldos')
+        .upsert({ fondo, saldo: nuevoSaldo, updated_at: new Date() })
+        .eq('fondo', fondo);
+    
+    return nuevoSaldo;
+}
+
+// 📊 Obtener saldos de wallet
+app.get('/api/wallet/saldos', async (req, res) => {
+    const { data } = await supabase.from('wallet_saldos').select('*');
+    const { data: config } = await supabase.from('wallet_config').select('*');
+    res.json({ saldos: data || [], porcentajes: config || [] });
+});
+
+// 📊 Obtener movimientos
+app.get('/api/wallet/movimientos', async (req, res) => {
+    const { data } = await supabase
+        .from('wallet_movimientos')
+        .select('*')
+        .order('fecha', { ascending: false })
+        .limit(100);
+    res.json(data || []);
+});
+
+// 💰 Registrar gasto manual
+app.post('/api/wallet/gasto', async (req, res) => {
+    try {
+        const { fecha, categoria, concepto, monto, fondo_origen } = req.body;
+        
+        // Validar saldo
+        if (fondo_origen === 'general') {
+            await actualizarSaldoFondo('general', monto, 'restar');
+        } else {
+            await actualizarSaldoFondo(fondo_origen, monto, 'restar');
+        }
+        
+        // Registrar movimiento
+        const { data: movimiento } = await supabase
+            .from('wallet_movimientos')
+            .insert({
+                fecha,
+                tipo: 'gasto',
+                categoria,
+                concepto,
+                monto,
+                fondo_origen
+            })
+            .select()
+            .single();
+        
+        res.json({ success: true, movimiento });
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+});
+
+// 💰 Retirar de fondos (Fer o Segas)
+app.post('/api/wallet/retirar', async (req, res) => {
+    try {
+        const { fecha, fondo, monto, concepto } = req.body;
+        
+        if (fondo !== 'fondo_fer' && fondo !== 'fondo_segas') {
+            return res.status(400).json({ error: 'Fondo no válido' });
+        }
+        
+        await actualizarSaldoFondo(fondo, monto, 'restar');
+        
+        const { data: movimiento } = await supabase
+            .from('wallet_movimientos')
+            .insert({
+                fecha,
+                tipo: `retiro_${fondo}`,
+                categoria: 'retiro',
+                concepto,
+                monto,
+                fondo_origen: fondo
+            })
+            .select()
+            .single();
+        
+        res.json({ success: true, movimiento });
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+});
+
+// 🔄 Procesar ganancia automática (desde venta o intercambio)
+async function procesarGanancia(montoGanancia, fecha) {
+    const { data: config } = await supabase.from('wallet_config').select('*');
+    const porcentajeFer = config.find(c => c.nombre === 'fondo_fer')?.porcentaje || 15;
+    const porcentajeSegas = config.find(c => c.nombre === 'fondo_segas')?.porcentaje || 15;
+    const porcentajeGeneral = 100 - (porcentajeFer + porcentajeSegas);
+    
+    const montoFer = (montoGanancia * porcentajeFer) / 100;
+    const montoSegas = (montoGanancia * porcentajeSegas) / 100;
+    const montoGeneral = (montoGanancia * porcentajeGeneral) / 100;
+    
+    // Actualizar saldos
+    await actualizarSaldoFondo('general', montoGeneral, 'sumar');
+    await actualizarSaldoFondo('fondo_fer', montoFer, 'sumar');
+    await actualizarSaldoFondo('fondo_segas', montoSegas, 'sumar');
+    
+    // Registrar movimientos
+    await supabase.from('wallet_movimientos').insert([
+        { fecha, tipo: 'ingreso', categoria: 'ganancia', concepto: 'Ganancia distribuida', monto: montoGeneral, fondo_destino: 'general' },
+        { fecha, tipo: 'ingreso', categoria: 'ganancia', concepto: 'Fondo Fer', monto: montoFer, fondo_destino: 'fondo_fer' },
+        { fecha, tipo: 'ingreso', categoria: 'ganancia', concepto: 'Fondo Segas', monto: montoSegas, fondo_destino: 'fondo_segas' }
+    ]);
+    
+    return { montoGeneral, montoFer, montoSegas };
+}
+
+// Modificar endpoint de venta para procesar ganancia
+// Busca en tu código POST /api/ventas y agrega después de guardar la venta:
+// await procesarGanancia(ganancia, fecha);
+
+// Modificar endpoint de intercambio para procesar ganancia
+// Busca en tu código POST /api/intercambios y agrega:
+// if (gananciaIntercambio > 0) await procesarGanancia(gananciaIntercambio, fecha);
 app.listen(port, () => {
     console.log(`🚀 Servidor Toom en http://localhost:${port}`);
     console.log(`📸 Usando Supabase Storage para imágenes`);
