@@ -399,6 +399,114 @@ app.delete('/api/ventas/:id', async (req, res) => {
         res.status(500).json({ error: 'Error al eliminar venta' });
     }
 });
+// ============ INTERCAMBIOS ============
+
+// 📦 Registrar intercambio
+app.post('/api/intercambios', async (req, res) => {
+    try {
+        const { 
+            fecha, 
+            producto_entregado, 
+            producto_recibido, 
+            cantidad_entregada, 
+            cantidad_recibida,
+            diferencia_favor,
+            monto_diferencia,
+            notas 
+        } = req.body;
+        
+        // Obtener valores de los productos del inventario
+        const { data: entregado } = await supabase
+            .from('inventario')
+            .select('precio_estimado_venta, ultimo_costo')
+            .eq('producto', producto_entregado)
+            .single();
+        
+        const { data: recibido } = await supabase
+            .from('inventario')
+            .select('precio_estimado_venta, ultimo_costo')
+            .eq('producto', producto_recibido)
+            .single();
+        
+        if (!entregado || !recibido) {
+            return res.status(400).json({ error: 'Producto no encontrado en inventario' });
+        }
+        
+        // Calcular valores
+        const valorEntregado = (entregado.precio_estimado_venta || entregado.ultimo_costo) * cantidad_entregada;
+        const valorRecibido = (recibido.precio_estimado_venta || recibido.ultimo_costo) * cantidad_recibida;
+        
+        let gananciaIntercambio = 0;
+        if (diferencia_favor === 'a_favor') {
+            // Recibes dinero extra a tu favor
+            gananciaIntercambio = (valorRecibido + monto_diferencia) - valorEntregado;
+        } else {
+            // Pagas dinero extra
+            gananciaIntercambio = valorRecibido - (valorEntregado + monto_diferencia);
+        }
+        
+        // Guardar intercambio
+        const { data: intercambio, error } = await supabase
+            .from('intercambios')
+            .insert({
+                fecha,
+                producto_entregado,
+                producto_recibido,
+                cantidad_entregada,
+                cantidad_recibida,
+                diferencia_favor,
+                monto_diferencia: monto_diferencia || 0,
+                valor_entregado: valorEntregado,
+                valor_recibido: valorRecibido,
+                ganancia_intercambio: gananciaIntercambio,
+                notas: notas || ''
+            })
+            .select()
+            .single();
+        
+        if (error) throw error;
+        
+        // Actualizar inventario: restar producto entregado, sumar producto recibido
+        // Restar entregado
+        const { data: stockEntregado } = await supabase
+            .from('inventario')
+            .select('stock')
+            .eq('producto', producto_entregado)
+            .single();
+        
+        await supabase
+            .from('inventario')
+            .update({ stock: stockEntregado.stock - cantidad_entregada })
+            .eq('producto', producto_entregado);
+        
+        // Sumar recibido
+        const { data: stockRecibido } = await supabase
+            .from('inventario')
+            .select('stock')
+            .eq('producto', producto_recibido)
+            .single();
+        
+        await supabase
+            .from('inventario')
+            .update({ stock: stockRecibido.stock + cantidad_recibida })
+            .eq('producto', producto_recibido);
+        
+        res.json({ success: true, id: intercambio.id, ganancia: gananciaIntercambio });
+        
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: 'Error al registrar intercambio' });
+    }
+});
+
+// 📋 Obtener todos los intercambios
+app.get('/api/intercambios', async (req, res) => {
+    const { data } = await supabase
+        .from('intercambios')
+        .select('*')
+        .order('fecha', { ascending: false });
+    res.json(data || []);
+});
 app.listen(port, () => {
     console.log(`🚀 Servidor Toom en http://localhost:${port}`);
     console.log(`📸 Usando Supabase Storage para imágenes`);

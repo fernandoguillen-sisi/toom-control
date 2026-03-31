@@ -498,7 +498,10 @@ function mostrarTab(tab) {
     contenidos.forEach(content => {
         content.classList.remove('active');
     });
-    
+    if (tab === 'intercambios') {
+    cargarProductosIntercambio();
+    cargarIntercambios();
+}
     // Mostrar el contenido seleccionado
     const contenidoActivo = document.getElementById(`tab-${tab}`);
     if (contenidoActivo) {
@@ -632,6 +635,145 @@ async function eliminarVenta(id) {
         } else {
             alert('❌ Error al eliminar');
         }
+    }
+}
+// ============ CARGAR PRODUCTOS PARA INTERCAMBIOS ============
+async function cargarProductosIntercambio() {
+    try {
+        const response = await fetch(`${API_URL}/api/inventario/productos`);
+        const productos = await response.json();
+        
+        const selectEntregado = document.getElementById('productoEntregado');
+        const selectRecibido = document.getElementById('productoRecibido');
+        
+        const options = '<option value="">Seleccionar producto...</option>' + 
+            productos.map(p => `<option value="${p.producto}" data-costo="${p.ultimo_costo}" data-precio="${p.precio_estimado_venta || p.ultimo_costo}" data-stock="${p.stock}">${p.producto} (Stock: ${p.stock} - Valor: $${(p.precio_estimado_venta || p.ultimo_costo).toFixed(2)})</option>`).join('');
+        
+        selectEntregado.innerHTML = options;
+        selectRecibido.innerHTML = options;
+    } catch (error) {
+        console.error('Error cargando productos:', error);
+    }
+}
+
+function actualizarValoresIntercambio() {
+    const selectEntregado = document.getElementById('productoEntregado');
+    const selectRecibido = document.getElementById('productoRecibido');
+    const cantidadEntregada = parseFloat(document.getElementById('cantidadEntregada').value) || 1;
+    const cantidadRecibida = parseFloat(document.getElementById('cantidadRecibida').value) || 1;
+    const diferenciaFavor = document.getElementById('diferenciaFavor').value;
+    const montoDiferencia = parseFloat(document.getElementById('montoDiferencia').value) || 0;
+    
+    const valorEntregadoUnit = parseFloat(selectEntregado.selectedOptions[0]?.getAttribute('data-precio') || 0);
+    const valorRecibidoUnit = parseFloat(selectRecibido.selectedOptions[0]?.getAttribute('data-precio') || 0);
+    
+    const valorEntregado = valorEntregadoUnit * cantidadEntregada;
+    const valorRecibido = valorRecibidoUnit * cantidadRecibida;
+    
+    let ganancia = 0;
+    if (diferenciaFavor === 'a_favor') {
+        ganancia = (valorRecibido + montoDiferencia) - valorEntregado;
+    } else {
+        ganancia = valorRecibido - (valorEntregado + montoDiferencia);
+    }
+    
+    document.getElementById('resValorEntregado').innerHTML = `$${valorEntregado.toFixed(2)}`;
+    document.getElementById('resValorRecibido').innerHTML = `$${valorRecibido.toFixed(2)}`;
+    document.getElementById('resDiferencia').innerHTML = `$${montoDiferencia.toFixed(2)} ${diferenciaFavor === 'a_favor' ? '(a mi favor)' : '(pago yo)'}`;
+    
+    const gananciaColor = ganancia >= 0 ? '#10b981' : '#ef4444';
+    const gananciaSigno = ganancia >= 0 ? '+' : '';
+    document.getElementById('resGanancia').innerHTML = `<span style="color: ${gananciaColor};">${gananciaSigno}$${ganancia.toFixed(2)}</span>`;
+}
+
+// ============ GUARDAR INTERCAMBIO ============
+document.getElementById('formIntercambio')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    const data = {
+        fecha: document.getElementById('fechaIntercambio').value,
+        producto_entregado: document.getElementById('productoEntregado').value,
+        producto_recibido: document.getElementById('productoRecibido').value,
+        cantidad_entregada: parseInt(document.getElementById('cantidadEntregada').value),
+        cantidad_recibida: parseInt(document.getElementById('cantidadRecibida').value),
+        diferencia_favor: document.getElementById('diferenciaFavor').value,
+        monto_diferencia: parseFloat(document.getElementById('montoDiferencia').value) || 0,
+        notas: document.getElementById('notasIntercambio').value
+    };
+    
+    if (!data.producto_entregado || !data.producto_recibido) {
+        alert('❌ Selecciona ambos productos');
+        return;
+    }
+    
+    if (data.producto_entregado === data.producto_recibido) {
+        alert('❌ No puedes intercambiar el mismo producto');
+        return;
+    }
+    
+    const confirmMsg = `🔄 Confirmar intercambio:\n\n📤 ENTREGAS: ${data.cantidad_entregada}x ${data.producto_entregado}\n📥 RECIBES: ${data.cantidad_recibida}x ${data.producto_recibido}\n💰 Diferencia: $${data.monto_diferencia} ${data.diferencia_favor === 'a_favor' ? '(a tu favor)' : '(pagas tú)'}\n\n¿Registrar?`;
+    
+    if (confirm(confirmMsg)) {
+        try {
+            const response = await fetch(`${API_URL}/api/intercambios`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            const result = await response.json();
+            if (response.ok) {
+                alert(`✅ Intercambio registrado!\nGanancia en el intercambio: $${result.ganancia?.toFixed(2) || '0'}`);
+                e.target.reset();
+                document.getElementById('fechaIntercambio').value = new Date().toISOString().slice(0,10);
+                cargarInventario();
+                cargarProductosSelector();
+                cargarProductosIntercambio();
+                cargarIntercambios();
+                cargarGrafica();
+                cargarDashboard();
+            } else {
+                alert('❌ Error: ' + (result.error || 'Error desconocido'));
+            }
+        } catch (error) {
+            console.error('Error:', error);
+            alert('❌ Error de conexión');
+        }
+    }
+});
+
+// ============ CARGAR HISTORIAL DE INTERCAMBIOS ============
+async function cargarIntercambios() {
+    try {
+        const response = await fetch(`${API_URL}/api/intercambios`);
+        const intercambios = await response.json();
+        const container = document.getElementById('listaIntercambios');
+        
+        if (intercambios.length === 0) {
+            container.innerHTML = '<div class="item-card">No hay intercambios registrados</div>';
+        } else {
+            container.innerHTML = intercambios.slice(0, 20).map(i => {
+                const gananciaColor = i.ganancia_intercambio >= 0 ? '#10b981' : '#ef4444';
+                return `
+                    <div class="item-card">
+                        <div class="item-header">
+                            <div class="item-title"><i class="fas fa-exchange-alt"></i> Intercambio</div>
+                            <div class="item-badge">${i.fecha}</div>
+                        </div>
+                        <div class="item-details">
+                            <span><i class="fas fa-arrow-right"></i> Entregaste: ${i.cantidad_entregada}x ${i.producto_entregado}</span>
+                            <span><i class="fas fa-arrow-left"></i> Recibiste: ${i.cantidad_recibida}x ${i.producto_recibido}</span>
+                        </div>
+                        <div class="item-details">
+                            <span><i class="fas fa-dollar-sign"></i> Diferencia: $${i.monto_diferencia} ${i.diferencia_favor === 'a_favor' ? '(a tu favor)' : '(pagaste)'}</span>
+                            <span><i class="fas fa-chart-line" style="color: ${gananciaColor};"></i> Ganancia: $${i.ganancia_intercambio?.toFixed(2)}</span>
+                        </div>
+                        ${i.notas ? `<div class="item-details"><span><i class="fas fa-sticky-note"></i> ${i.notas}</span></div>` : ''}
+                    </div>
+                `;
+            }).join('');
+        }
+    } catch (error) {
+        console.error('Error cargando intercambios:', error);
     }
 }
 // ============ INICIAR ============

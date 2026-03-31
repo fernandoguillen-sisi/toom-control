@@ -765,6 +765,7 @@ body.dark input[type="date"]::-webkit-calendar-picker-indicator {
     <button class="tab-btn" onclick="mostrarTab('inventario')">📊 Inventario</button>
     <button class="tab-btn" onclick="mostrarTab('dashboard')">📈 Dashboard</button>
     <button class="tab-btn" onclick="mostrarTab('historial')">📋 Historial</button>
+    <button class="tab-btn" onclick="mostrarTab('intercambios')">🔄 Intercambios</button>
 </div>
 
         <!-- Tab: Compras -->
@@ -845,6 +846,61 @@ body.dark input[type="date"]::-webkit-calendar-picker-indicator {
             </div>
         </div>
     </div>
+    <!-- Tab: Intercambios -->
+<div id="tab-intercambios" class="tab-content">
+    <div class="form-card">
+        <h2><i class="fas fa-exchange-alt"></i> Registrar intercambio / trueque</h2>
+        <form id="formIntercambio">
+            <div class="form-grid">
+                <input type="date" id="fechaIntercambio" required>
+                
+                <div style="border: 1px solid var(--border); border-radius: 16px; padding: 16px; grid-column: span 2;">
+                    <h3 style="margin-bottom: 12px;">📤 Producto que ENTREGAS</h3>
+                    <select id="productoEntregado" required onchange="actualizarValoresIntercambio()">
+                        <option value="">Seleccionar producto...</option>
+                    </select>
+                    <input type="number" id="cantidadEntregada" placeholder="Cantidad" value="1" min="1" step="1" onchange="actualizarValoresIntercambio()">
+                </div>
+                
+                <div style="border: 1px solid var(--border); border-radius: 16px; padding: 16px; grid-column: span 2;">
+                    <h3 style="margin-bottom: 12px;">📥 Producto que RECIBES</h3>
+                    <select id="productoRecibido" required onchange="actualizarValoresIntercambio()">
+                        <option value="">Seleccionar producto...</option>
+                    </select>
+                    <input type="number" id="cantidadRecibida" placeholder="Cantidad" value="1" min="1" step="1" onchange="actualizarValoresIntercambio()">
+                </div>
+                
+                <div style="grid-column: span 2;">
+                    <label>Diferencia de dinero:</label>
+                    <select id="diferenciaFavor" onchange="actualizarValoresIntercambio()">
+                        <option value="en_contra">❌ Yo pago diferencia a favor del otro</option>
+                        <option value="a_favor">💰 Me pagan diferencia a mi favor</option>
+                    </select>
+                    <input type="number" id="montoDiferencia" placeholder="Monto de la diferencia" step="0.01" value="0" onchange="actualizarValoresIntercambio()">
+                </div>
+                
+                <div style="grid-column: span 2; background: var(--bg); border-radius: 12px; padding: 16px;">
+                    <div class="resumen-intercambio" id="resumenIntercambio">
+                        <div>📊 <strong>Valor de lo que entregas:</strong> <span id="resValorEntregado">$0</span></div>
+                        <div>📊 <strong>Valor de lo que recibes:</strong> <span id="resValorRecibido">$0</span></div>
+                        <div>💵 <strong>Diferencia:</strong> <span id="resDiferencia">$0</span></div>
+                        <div>📈 <strong>Ganancia/Pérdida en el intercambio:</strong> <span id="resGanancia">$0</span></div>
+                    </div>
+                </div>
+                
+                <textarea id="notasIntercambio" placeholder="Notas adicionales (opcional)" rows="2" style="grid-column: span 2;"></textarea>
+            </div>
+            <button type="submit" class="btn-primary"><i class="fas fa-exchange-alt"></i> Registrar intercambio</button>
+        </form>
+    </div>
+    
+    <div class="form-card" style="margin-top: 24px;">
+        <h2><i class="fas fa-history"></i> Historial de intercambios</h2>
+        <div id="listaIntercambios" class="cards-list">
+            <div class="loading">Cargando...</div>
+        </div>
+    </div>
+</div>
     <script src="app.js"></script>
 </body>
 </html>
